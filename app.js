@@ -2,7 +2,33 @@
   "use strict";
 
   var STORAGE_KEY = "poshmark-inventory-v1";
+  var THEME_KEY = "poshmark-inventory-theme";
   var state = { items: [], editingId: null, soldTargetId: null };
+
+  // ---------- theme ----------
+
+  function applyTheme(choice) {
+    if (choice === "light" || choice === "dark") {
+      document.documentElement.setAttribute("data-theme", choice);
+    } else {
+      document.documentElement.removeAttribute("data-theme");
+    }
+    document.querySelectorAll(".theme-toggle button").forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.themeChoice === choice);
+    });
+  }
+
+  function initTheme() {
+    var saved = localStorage.getItem(THEME_KEY) || "system";
+    applyTheme(saved);
+    document.querySelectorAll(".theme-toggle button").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var choice = btn.dataset.themeChoice;
+        localStorage.setItem(THEME_KEY, choice);
+        applyTheme(choice);
+      });
+    });
+  }
 
   // ---------- persistence ----------
 
@@ -670,6 +696,7 @@
   // ---------- wire up ----------
 
   function init() {
+    initTheme();
     load();
     initTabs();
     renderDashboard();
