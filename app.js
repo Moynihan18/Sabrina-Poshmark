@@ -200,6 +200,233 @@
     });
   }
 
+  // ---------- paste-from-Poshmark parser ----------
+
+  var PASTE_FIELD_LABELS = {
+    title: "title",
+    brand: "brand",
+    size: "size",
+    color: "color",
+    listingPrice: "listing price",
+    originalPrice: "original price",
+    notes: "notes"
+  };
+  var PASTE_ALWAYS_CHECK = ["department", "category", "subcategory"];
+
+  function extractJsonLdProduct(raw) {
+    var re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
+    var match;
+    while ((match = re.exec(raw))) {
+      var data;
+      try {
+        data = JSON.parse(match[1]);
+      } catch (e) {
+        continue;
+      }
+      var nodes = Array.isArray(data) ? data : data["@graph"] ? data["@graph"] : [data];
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        var type = node && node["@type"];
+        if (type === "Product" || (Array.isArray(type) && type.indexOf("Product") !== -1)) {
+          return node;
+        }
+      }
+    }
+    return null;
+  }
+
+  function sanitizeHtmlForText(html) {
+    return html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, "");
+  }
+
+  function htmlToText(html) {
+    var div = document.createElement("div");
+    div.style.cssText = "position:absolute; left:-99999px; top:-99999px;";
+    div.innerHTML = sanitizeHtmlForText(html);
+    document.body.appendChild(div);
+    var text = div.innerText;
+    document.body.removeChild(div);
+    return text;
+  }
+
+  function containsBrand(text, brand) {
+    var lowerText = text.toLowerCase();
+    var lowerBrand = brand.toLowerCase();
+    var idx = lowerText.indexOf(lowerBrand);
+    if (idx === -1) return false;
+    var before = idx > 0 ? lowerText[idx - 1] : " ";
+    var afterIdx = idx + lowerBrand.length;
+    var after = afterIdx < lowerText.length ? lowerText[afterIdx] : " ";
+    var isWordChar = function (c) { return /[a-z0-9]/i.test(c); };
+    return !isWordChar(before) && !isWordChar(after);
+  }
+
+  function findKnownBrand(text) {
+    var brands = distinct("brand").slice().sort(function (a, b) { return b.length - a.length; });
+    for (var i = 0; i < brands.length; i++) {
+      if (containsBrand(text, brands[i])) return brands[i];
+    }
+    return null;
+  }
+
+  function classifyPrices(text) {
+    var lines = text.split(/\r?\n/);
+    var listing = null, original = null, unlabeled = [];
+    lines.forEach(function (line) {
+      var re = /\$\s?([\d][\d,]*(?:\.\d{1,2})?)/g;
+      var m;
+      while ((m = re.exec(line))) {
+        var amount = Number(m[1].replace(/,/g, ""));
+        if (isNaN(amount)) continue;
+        if (/original|retail|msrp|value/i.test(line)) {
+          if (original === null) original = amount;
+        } else if (/list(ing)?|asking/i.test(line)) {
+          if (listing === null) listing = amount;
+        } else {
+          unlabeled.push(amount);
+        }
+      }
+    });
+    var ambiguous = null;
+    if (listing === null && original === null) {
+      if (unlabeled.length === 1) {
+        listing = unlabeled[0];
+        ambiguous = "listing price (unlabeled $" + unlabeled[0] + " - please confirm)";
+      } else if (unlabeled.length > 1) {
+        ambiguous = "price (found " + unlabeled.map(function (a) { return "$" + a; }).join(" and ") + " - couldn't tell which is which)";
+      }
+    }
+    return { listingPrice: listing, originalPrice: original, ambiguous: ambiguous };
+  }
+
+  function parsePoshmarkPaste(raw) {
+    raw = (raw || "").trim();
+    if (!raw) return { fields: {}, filled: [], check: [], empty: true };
+
+    var fields = {};
+    var filled = [];
+    var check = PASTE_ALWAYS_CHECK.slice();
+
+    var product = extractJsonLdProduct(raw);
+    if (product) {
+      if (product.name) { fields.title = String(product.name); filled.push("title"); }
+      var brandName = product.brand && (product.brand.name || product.brand);
+      if (brandName) { fields.brand = String(brandName); filled.push("brand"); }
+      if (product.description) { fields.notes = String(product.description).slice(0, 500); filled.push("notes"); }
+      var price = product.offers && (product.offers.price || (product.offers[0] && product.offers[0].price));
+      if (price !== undefined) {
+        var n = Number(price);
+        if (!isNaN(n)) { fields.listingPrice = n; filled.push("listingPrice"); }
+      }
+    }
+
+    var looksLikeHtml = /<[a-z][\s\S]*>/i.test(raw);
+    var text = looksLikeHtml ? htmlToText(raw) : raw;
+
+    if (!fields.title) {
+      var titleSizeMatch = text.match(/^(.*\S)\s*[-–—]\s*Size\s*:?\s*([A-Za-z0-9.\/]+(?:\s?\/\s?[A-Za-z0-9]+)?)\s*$/im);
+      if (titleSizeMatch) {
+        fields.title = titleSizeMatch[1].trim();
+        fields.size = titleSizeMatch[2].trim();
+        filled.push("title");
+        filled.push("size");
+      }
+    }
+
+    if (!fields.size) {
+      var sizeMatch = text.match(/\bsize[:\s]{1,3}([A-Za-z0-9.\/]{1,12})\b/i);
+      if (sizeMatch) {
+        fields.size = sizeMatch[1].replace(/[.,;]+$/, "");
+        check.push("size");
+      }
+    }
+
+    if (!fields.brand) {
+      var brand = findKnownBrand(text);
+      if (brand) { fields.brand = brand; filled.push("brand"); }
+    }
+
+    var colorMatch = text.match(/^color[:\s]+([A-Za-z][A-Za-z ,\/-]{1,25})/im);
+    if (colorMatch) { fields.color = colorMatch[1].trim(); filled.push("color"); }
+
+    if (fields.listingPrice === undefined) {
+      var prices = classifyPrices(text);
+      if (prices.listingPrice !== null) {
+        fields.listingPrice = prices.listingPrice;
+        if (prices.ambiguous) check.push(prices.ambiguous); else filled.push("listingPrice");
+      }
+      if (prices.originalPrice !== null) {
+        fields.originalPrice = prices.originalPrice;
+        filled.push("originalPrice");
+      }
+      if (prices.listingPrice === null && prices.originalPrice === null && prices.ambiguous) {
+        check.push(prices.ambiguous);
+      }
+    }
+
+    if (!fields.notes) {
+      var descMatch = text.match(/^description\s*:?\s*\n?(.+)$/im);
+      if (descMatch && descMatch[1].trim()) {
+        fields.notes = descMatch[1].trim().slice(0, 500);
+        filled.push("notes");
+      }
+    }
+
+    return { fields: fields, filled: filled, check: check, empty: false };
+  }
+
+  function applyParsedFields(fields) {
+    var applied = [];
+    Object.keys(fields).forEach(function (key) {
+      var el = document.getElementById("f-" + key);
+      if (!el) return;
+      if (el.value.trim() !== "") return;
+      el.value = fields[key];
+      applied.push(key);
+    });
+    return applied;
+  }
+
+  function labelList(keys) {
+    return keys.map(function (k) { return PASTE_FIELD_LABELS[k] || k; }).join(", ");
+  }
+
+  function handlePasteParse() {
+    var raw = document.getElementById("paste-input").value;
+    var result = parsePoshmarkPaste(raw);
+    var summaryEl = document.getElementById("paste-result");
+    summaryEl.hidden = false;
+
+    if (result.empty) {
+      summaryEl.textContent = "Paste something from your Poshmark listing first.";
+      return;
+    }
+
+    var applied = applyParsedFields(result.fields);
+    var appliedLabels = result.filled.filter(function (k) { return applied.indexOf(k) !== -1; });
+    var recognizedButSkipped = Object.keys(result.fields).filter(function (k) { return applied.indexOf(k) === -1; });
+    var uniqueCheck = Array.from(new Set(result.check));
+    var foundNothingAtAll = !Object.keys(result.fields).length && uniqueCheck.length === PASTE_ALWAYS_CHECK.length;
+
+    if (foundNothingAtAll) {
+      summaryEl.textContent = "Couldn't find any recognizable listing data in that text - please fill in the form manually.";
+      return;
+    }
+
+    var parts = [];
+    if (appliedLabels.length) parts.push("Filled: " + labelList(appliedLabels) + ".");
+    if (recognizedButSkipped.length) parts.push("Found " + labelList(recognizedButSkipped) + " too, but those fields already had a value so they were left as-is.");
+    if (uniqueCheck.length) parts.push("Please check: " + uniqueCheck.map(function (k) { return PASTE_FIELD_LABELS[k] || k; }).join(", ") + ".");
+    summaryEl.textContent = parts.join(" ");
+  }
+
+  function clearPasteBox() {
+    document.getElementById("paste-input").value = "";
+    document.getElementById("paste-result").hidden = true;
+  }
+
   // ---------- dashboard / insights ----------
 
   function renderStatTile(label, value, sub) {
@@ -505,6 +732,7 @@
     document.getElementById("f-cancel").hidden = true;
     state.editingId = null;
     populateDatalists();
+    clearPasteBox();
   }
 
   function loadItemIntoForm(item) {
@@ -715,6 +943,8 @@
 
     document.getElementById("item-form").addEventListener("submit", handleFormSubmit);
     document.getElementById("f-cancel").addEventListener("click", clearForm);
+    document.getElementById("paste-parse").addEventListener("click", handlePasteParse);
+    document.getElementById("paste-clear").addEventListener("click", clearPasteBox);
     clearForm();
 
     document.getElementById("sold-form").addEventListener("submit", handleSoldSubmit);

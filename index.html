@@ -128,6 +128,18 @@
     <section id="view-add" class="view">
       <div class="panel form-panel">
         <h2 id="form-title">Add New Item</h2>
+
+        <div class="paste-box">
+          <label for="paste-input">Paste from Poshmark</label>
+          <p class="paste-hint">Copy the page for your new listing (the page itself, or its HTML source) and paste it below to auto-fill what we can find.</p>
+          <textarea id="paste-input" rows="4" placeholder="Paste listing text or page source here…"></textarea>
+          <div class="paste-actions">
+            <button type="button" class="btn" id="paste-parse">Parse &amp; Fill</button>
+            <button type="button" class="btn btn-ghost" id="paste-clear">Clear</button>
+          </div>
+          <p class="paste-result" id="paste-result" hidden></p>
+        </div>
+
         <form id="item-form">
           <input type="hidden" id="f-id" />
           <div class="form-grid">

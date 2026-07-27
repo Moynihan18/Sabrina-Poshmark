@@ -229,6 +229,12 @@ label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color:
 label.full { margin-bottom: 14px; }
 .form-actions { display: flex; gap: 10px; margin-top: 6px; }
 
+.paste-box { background: var(--page); border: 1px solid var(--border); border-radius: 10px; padding: 14px; margin-bottom: 18px; }
+.paste-hint { color: var(--text-muted); font-size: 12px; margin: 2px 0 8px; font-weight: 400; }
+.paste-box textarea { width: 100%; font-family: inherit; }
+.paste-actions { display: flex; gap: 8px; margin-top: 8px; }
+.paste-result { font-size: 13px; color: var(--text-secondary); margin: 10px 0 0; font-weight: 400; }
+
 .modal-backdrop {
   position: fixed; inset: 0; background: rgba(0,0,0,0.45);
   display: flex; align-items: center; justify-content: center; z-index: 50;
