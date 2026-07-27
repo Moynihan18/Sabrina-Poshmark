@@ -72,6 +72,10 @@
 
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
