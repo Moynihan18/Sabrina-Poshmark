@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Closet Inventory</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">P</span>
+      <span class="brand-name">Closet Inventory</span>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="dashboard">Insights</button>
+      <button class="tab" data-tab="inventory">Inventory</button>
+      <button class="tab" data-tab="sold">Sold</button>
+      <button class="tab" data-tab="add">Add Item</button>
+    </nav>
+    <div class="topbar-actions">
+      <button class="btn btn-ghost" id="btn-export">Export</button>
+      <button class="btn btn-ghost" id="btn-import">Import</button>
+      <input type="file" id="file-import" accept="application/json" hidden />
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- DASHBOARD / INSIGHTS -->
+    <section id="view-dashboard" class="view active">
+      <div class="stat-row" id="stat-row"></div>
+      <div class="panel-row">
+        <div class="panel">
+          <h2>Top Categories by Units Sold</h2>
+          <p class="panel-sub">Which type of item sells most often</p>
+          <div id="chart-categories" class="barlist"></div>
+        </div>
+        <div class="panel">
+          <h2>Top Brands by Units Sold</h2>
+          <p class="panel-sub">Which brands sell most often</p>
+          <div id="chart-brands" class="barlist"></div>
+        </div>
+      </div>
+      <div class="panel-row">
+        <div class="panel">
+          <h2>Profit Margin by Department</h2>
+          <p class="panel-sub">Average profit ÷ net revenue, by department</p>
+          <div id="chart-departments" class="barlist"></div>
+        </div>
+        <div class="panel">
+          <h2>Sales Over Time</h2>
+          <p class="panel-sub">Items sold per month</p>
+          <div id="chart-timeline" class="barlist barlist-vertical"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- INVENTORY (ACTIVE) -->
+    <section id="view-inventory" class="view">
+      <div class="toolbar">
+        <input type="search" id="inv-search" placeholder="Search title, brand, SKU…" class="input search-input" />
+        <select id="inv-filter-dept" class="input"><option value="">All departments</option></select>
+        <select id="inv-filter-cat" class="input"><option value="">All categories</option></select>
+        <select id="inv-sort" class="input">
+          <option value="dateListed-desc">Newest listed</option>
+          <option value="dateListed-asc">Oldest listed</option>
+          <option value="listingPrice-desc">Price: high to low</option>
+          <option value="listingPrice-asc">Price: low to high</option>
+          <option value="title-asc">Title A-Z</option>
+        </select>
+        <span class="toolbar-count" id="inv-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="inv-table">
+          <thead>
+            <tr>
+              <th>SKU</th><th>Title</th><th>Dept</th><th>Category</th><th>Brand</th>
+              <th>Size</th><th>Listed</th><th>Days Listed</th><th>List Price</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="inv-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SOLD -->
+    <section id="view-sold" class="view">
+      <div class="toolbar">
+        <input type="search" id="sold-search" placeholder="Search title, brand, SKU…" class="input search-input" />
+        <select id="sold-filter-dept" class="input"><option value="">All departments</option></select>
+        <select id="sold-filter-cat" class="input"><option value="">All categories</option></select>
+        <select id="sold-sort" class="input">
+          <option value="dateSold-desc">Newest sold</option>
+          <option value="dateSold-asc">Oldest sold</option>
+          <option value="profit-desc">Profit: high to low</option>
+          <option value="profit-asc">Profit: low to high</option>
+          <option value="margin-desc">Margin: high to low</option>
+        </select>
+        <span class="toolbar-count" id="sold-count"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table" id="sold-table">
+          <thead>
+            <tr>
+              <th>SKU</th><th>Title</th><th>Dept</th><th>Category</th><th>Brand</th>
+              <th>Sold</th><th>Days to Sell</th><th>Sale Price</th><th>Net Income</th><th>Profit</th><th>Margin</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="sold-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ADD ITEM -->
+    <section id="view-add" class="view">
+      <div class="panel form-panel">
+        <h2 id="form-title">Add New Item</h2>
+        <form id="item-form">
+          <input type="hidden" id="f-id" />
+          <div class="form-grid">
+            <label>SKU
+              <input type="text" id="f-sku" />
+            </label>
+            <label>Listing Title *
+              <input type="text" id="f-title" required />
+            </label>
+            <label>Department
+              <input type="text" id="f-department" list="dl-department" />
+              <datalist id="dl-department"></datalist>
+            </label>
+            <label>Category
+              <input type="text" id="f-category" list="dl-category" />
+              <datalist id="dl-category"></datalist>
+            </label>
+            <label>Subcategory
+              <input type="text" id="f-subcategory" list="dl-subcategory" />
+              <datalist id="dl-subcategory"></datalist>
+            </label>
+            <label>Brand
+              <input type="text" id="f-brand" list="dl-brand" />
+              <datalist id="dl-brand"></datalist>
+            </label>
+            <label>Measurements / Size
+              <input type="text" id="f-size" />
+            </label>
+            <label>Material
+              <input type="text" id="f-material" />
+            </label>
+            <label>Color
+              <input type="text" id="f-color" />
+            </label>
+            <label>Date Listed
+              <input type="date" id="f-dateListed" />
+            </label>
+            <label>Purchase Price ($)
+              <input type="number" step="0.01" id="f-purchasePrice" />
+            </label>
+            <label>Original / Retail Price ($)
+              <input type="number" step="0.01" id="f-originalPrice" />
+            </label>
+            <label>Listing Price ($)
+              <input type="number" step="0.01" id="f-listingPrice" />
+            </label>
+          </div>
+          <label class="full">General Notes
+            <textarea id="f-notes" rows="2"></textarea>
+          </label>
+          <div class="form-actions">
+            <button type="submit" class="btn btn-primary" id="f-submit">Add Item</button>
+            <button type="button" class="btn btn-ghost" id="f-cancel" hidden>Cancel Edit</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Mark as Sold modal -->
+<div class="modal-backdrop" id="sold-modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Mark as Sold</h2>
+    <p class="modal-sub" id="sold-modal-item"></p>
+    <form id="sold-form">
+      <input type="hidden" id="sm-id" />
+      <label>Date Sold
+        <input type="date" id="sm-dateSold" required />
+      </label>
+      <label>Sale Price ($)
+        <input type="number" step="0.01" id="sm-salePrice" required />
+      </label>
+      <label>Net Income After Poshmark Fees ($)
+        <input type="number" step="0.01" id="sm-income" />
+      </label>
+      <p class="fee-hint" id="sm-fee-hint"></p>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Confirm Sale</button>
+        <button type="button" class="btn btn-ghost" id="sm-cancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="data/seed-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
