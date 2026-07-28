@@ -15,6 +15,7 @@
     </div>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="dashboard">Insights</button>
+      <button class="tab" data-tab="alerts">Alerts<span class="tab-badge" id="alerts-badge" hidden></span></button>
       <button class="tab" data-tab="inventory">Inventory</button>
       <button class="tab" data-tab="sold">Sold</button>
       <button class="tab" data-tab="add">Add Item</button>
@@ -41,6 +42,7 @@
 
     <!-- DASHBOARD / INSIGHTS -->
     <section id="view-dashboard" class="view active">
+      <div class="dashboard-banner" id="dashboard-banner" hidden></div>
       <div class="stat-row" id="stat-row"></div>
       <div class="panel-row">
         <div class="panel">
@@ -66,6 +68,12 @@
           <div id="chart-timeline" class="barlist barlist-vertical"></div>
         </div>
       </div>
+    </section>
+
+    <!-- ALERTS (STALE INVENTORY) -->
+    <section id="view-alerts" class="view">
+      <p class="panel-sub" id="alerts-intro">Items that have been listed 30, 60, or 90 days without selling. Drop the price, dismiss for now, or mark it as re-listed to reset the clock.</p>
+      <div id="alerts-list" class="alerts-list"></div>
     </section>
 
     <!-- INVENTORY (ACTIVE) -->
@@ -221,6 +229,37 @@
       <div class="form-actions">
         <button type="submit" class="btn btn-primary">Confirm Sale</button>
         <button type="button" class="btn btn-ghost" id="sm-cancel">Cancel</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Price change modal (from a stale alert) -->
+<div class="modal-backdrop" id="price-modal-backdrop" hidden>
+  <div class="modal">
+    <h2>Change Price</h2>
+    <p class="modal-sub" id="price-modal-item"></p>
+    <form id="price-form">
+      <input type="hidden" id="pm-id" />
+      <input type="hidden" id="pm-milestone" />
+      <p class="price-current">Current listing price: <strong id="pm-current-price"></strong></p>
+      <div class="price-preset-row">
+        <button type="button" class="btn btn-sm" data-preset-pct="10">10% off</button>
+        <button type="button" class="btn btn-sm" data-preset-pct="15">15% off</button>
+        <button type="button" class="btn btn-sm" data-preset-pct="20">20% off</button>
+      </div>
+      <div class="form-grid">
+        <label>% off
+          <input type="number" step="1" min="0" max="100" id="pm-percent-off" />
+        </label>
+        <label>$ off
+          <input type="number" step="0.01" min="0" id="pm-dollars-off" />
+        </label>
+      </div>
+      <p class="price-preview">New listing price: <strong id="pm-new-price"></strong></p>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary">Apply Price Change</button>
+        <button type="button" class="btn btn-ghost" id="pm-cancel">Cancel</button>
       </div>
     </form>
   </div>

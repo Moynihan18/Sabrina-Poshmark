@@ -3,7 +3,7 @@
 
   var STORAGE_KEY = "poshmark-inventory-v1";
   var THEME_KEY = "poshmark-inventory-theme";
-  var state = { items: [], editingId: null, soldTargetId: null };
+  var state = { items: [], editingId: null, soldTargetId: null, priceTargetId: null };
 
   // ---------- theme ----------
 
@@ -32,12 +32,19 @@
 
   // ---------- persistence ----------
 
+  function normalizeItem(it) {
+    if (it.lastUpdate === undefined) it.lastUpdate = null;
+    if (it.lastAcknowledgedMilestone === undefined) it.lastAcknowledgedMilestone = 0;
+    if (it.priceHistory === undefined) it.priceHistory = [];
+    return it;
+  }
+
   function load() {
     var raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       try {
         var parsed = JSON.parse(raw);
-        state.items = parsed.items || [];
+        state.items = (parsed.items || []).map(normalizeItem);
         return;
       } catch (e) {
         console.warn("Could not parse saved data, reseeding.", e);
@@ -49,7 +56,7 @@
   function seedFromDefaults() {
     var seed = window.SEED_ITEMS || [];
     state.items = seed.map(function (it, i) {
-      return Object.assign({ id: "seed-" + i }, it);
+      return normalizeItem(Object.assign({ id: "seed-" + i }, it));
     });
     save();
   }
@@ -149,6 +156,7 @@
         btn.classList.add("active");
         document.getElementById("view-" + btn.dataset.tab).classList.add("active");
         if (btn.dataset.tab === "dashboard") renderDashboard();
+        if (btn.dataset.tab === "alerts") renderAlerts();
         if (btn.dataset.tab === "inventory") renderInventory();
         if (btn.dataset.tab === "sold") renderSold();
         if (btn.dataset.tab === "add" && !state.editingId) clearForm();
@@ -478,7 +486,23 @@
     });
   }
 
+  function renderDashboardBanner() {
+    var banner = document.getElementById("dashboard-banner");
+    var stale = getStaleItems();
+    if (!stale.length) {
+      banner.hidden = true;
+      return;
+    }
+    banner.hidden = false;
+    banner.innerHTML =
+      "<span><strong>" + stale.length + "</strong> item" + (stale.length === 1 ? "" : "s") +
+      " haven't sold in 30+ days.</span>" +
+      '<button type="button" class="btn btn-sm btn-primary" id="banner-review">Review alerts</button>';
+    document.getElementById("banner-review").addEventListener("click", function () { goToTab("alerts"); });
+  }
+
   function renderDashboard() {
+    renderDashboardBanner();
     var sold = state.items.filter(function (it) { return it.status === "sold"; });
     var active = state.items.filter(function (it) { return it.status === "active"; });
 
@@ -613,6 +637,8 @@
     rows.forEach(function (it) {
       var tr = document.createElement("tr");
       var days = daysBetween(it.dateListed, today);
+      var milestone = getPendingMilestone(it);
+      var staleBadge = milestone ? '<span class="stale-badge">' + milestone + '+</span>' : "";
       tr.innerHTML =
         "<td>" + esc(fmtSku(it.sku)) + "</td>" +
         '<td class="title-cell" title="' + esc(it.title) + '">' + esc(it.title) + "</td>" +
@@ -621,7 +647,7 @@
         "<td>" + esc(it.brand || "—") + "</td>" +
         "<td>" + esc(it.size || "—") + "</td>" +
         "<td>" + fmtDate(it.dateListed) + "</td>" +
-        '<td class="num">' + (days !== null ? days : "—") + "</td>" +
+        '<td class="num">' + (days !== null ? days : "—") + staleBadge + "</td>" +
         '<td class="num">' + fmtMoney(it.listingPrice) + "</td>" +
         '<td class="row-actions">' +
         '<button class="btn btn-sm btn-primary" data-action="sell" data-id="' + it.id + '">Mark Sold</button>' +
@@ -763,23 +789,219 @@
 
     if (id) {
       var idx = state.items.findIndex(function (it) { return it.id === id; });
-      if (idx !== -1) state.items[idx] = Object.assign({}, state.items[idx], data);
+      if (idx !== -1) {
+        var oldItem = state.items[idx];
+        if (data.listingPrice !== null && Number(data.listingPrice) !== Number(oldItem.listingPrice)) {
+          oldItem.priceHistory = (oldItem.priceHistory || []).concat([{
+            date: todayStr(),
+            oldPrice: oldItem.listingPrice,
+            newPrice: data.listingPrice,
+            source: "manual-edit"
+          }]);
+        }
+        state.items[idx] = Object.assign({}, oldItem, data);
+      }
       showToast("Item updated.");
     } else {
-      var newItem = Object.assign({
+      var newItem = normalizeItem(Object.assign({
         id: uid(),
         dateSold: null,
         salePrice: null,
         incomeAfterFees: null,
         profit: null,
         status: "active"
-      }, data);
+      }, data));
       state.items.unshift(newItem);
       showToast("Item added to inventory.");
     }
     save();
     clearForm();
+    renderAlerts();
     goToTab("inventory");
+  }
+
+  // ---------- stale inventory alerts ----------
+
+  var STALE_MILESTONES = [90, 60, 30];
+
+  function getPendingMilestone(item) {
+    if (item.status !== "active" || !item.dateListed) return null;
+    var days = daysBetween(item.dateListed, todayStr());
+    if (days === null) return null;
+    var acknowledged = item.lastAcknowledgedMilestone || 0;
+    for (var i = 0; i < STALE_MILESTONES.length; i++) {
+      var m = STALE_MILESTONES[i];
+      if (days >= m && m > acknowledged) return m;
+    }
+    return null;
+  }
+
+  function getStaleItems() {
+    return state.items
+      .filter(function (it) { return getPendingMilestone(it) !== null; })
+      .sort(function (a, b) {
+        var ma = getPendingMilestone(a), mb = getPendingMilestone(b);
+        if (mb !== ma) return mb - ma;
+        return daysBetween(b.dateListed, todayStr()) - daysBetween(a.dateListed, todayStr());
+      });
+  }
+
+  function updateAlertsBadge() {
+    var count = getStaleItems().length;
+    var badge = document.getElementById("alerts-badge");
+    if (count > 0) {
+      badge.textContent = String(count);
+      badge.hidden = false;
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  function renderAlerts() {
+    updateAlertsBadge();
+    var list = document.getElementById("alerts-list");
+    var stale = getStaleItems();
+    list.innerHTML = "";
+    if (!stale.length) {
+      list.innerHTML = '<p class="empty-alerts">Nothing stale right now — everything currently listed is within 30 days.</p>';
+      return;
+    }
+    stale.forEach(function (it) {
+      var milestone = getPendingMilestone(it);
+      var days = daysBetween(it.dateListed, todayStr());
+      var card = document.createElement("div");
+      card.className = "alert-card";
+      card.innerHTML =
+        '<div class="alert-card-info">' +
+        '<div class="alert-card-title">' + esc(it.title) + "</div>" +
+        '<div class="alert-card-meta">SKU ' + esc(fmtSku(it.sku)) + (it.brand ? " · " + esc(it.brand) : "") +
+        " · listed <strong>" + days + " days ago</strong> · " + milestone + "-day mark · " +
+        "<strong>" + fmtMoney(it.listingPrice) + "</strong></div>" +
+        "</div>" +
+        '<div class="alert-card-actions">' +
+        '<button class="btn btn-sm" data-action="alert-price" data-id="' + it.id + '">Change Price</button>' +
+        '<button class="btn btn-sm" data-action="alert-renew" data-id="' + it.id + '">Mark as Re-listed</button>' +
+        '<button class="btn btn-sm btn-ghost" data-action="alert-dismiss" data-id="' + it.id + '">Dismiss</button>' +
+        "</div>";
+      list.appendChild(card);
+    });
+  }
+
+  function touchItem(item, milestone) {
+    item.lastUpdate = todayStr();
+    if (milestone) item.lastAcknowledgedMilestone = milestone;
+  }
+
+  function dismissAlert(id) {
+    var item = state.items.find(function (it) { return it.id === id; });
+    if (!item) return;
+    var milestone = getPendingMilestone(item);
+    touchItem(item, milestone);
+    save();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Dismissed for now.");
+  }
+
+  function renewListing(id) {
+    var item = state.items.find(function (it) { return it.id === id; });
+    if (!item) return;
+    if (!confirm('Mark "' + item.title + '" as re-listed? This resets the 30/60/90-day clock back to today.')) return;
+    item.dateListed = todayStr();
+    item.lastAcknowledgedMilestone = 0;
+    item.lastUpdate = todayStr();
+    save();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Listing renewed — clock reset.");
+  }
+
+  function handleAlertsListClick(e) {
+    var btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    var id = btn.dataset.id;
+    var action = btn.dataset.action;
+    if (action === "alert-dismiss") dismissAlert(id);
+    else if (action === "alert-renew") renewListing(id);
+    else if (action === "alert-price") openPriceModal(id);
+  }
+
+  // ---------- price change modal ----------
+
+  function openPriceModal(id) {
+    var item = state.items.find(function (it) { return it.id === id; });
+    if (!item) return;
+    state.priceTargetId = id;
+    document.getElementById("price-modal-item").textContent = item.title + " (SKU " + fmtSku(item.sku) + ")";
+    document.getElementById("pm-id").value = id;
+    document.getElementById("pm-milestone").value = getPendingMilestone(item) || "";
+    document.getElementById("pm-current-price").textContent = fmtMoney(item.listingPrice);
+    document.getElementById("pm-percent-off").value = "";
+    document.getElementById("pm-dollars-off").value = "";
+    updatePricePreview();
+    document.getElementById("price-modal-backdrop").hidden = false;
+  }
+
+  function closePriceModal() {
+    document.getElementById("price-modal-backdrop").hidden = true;
+    state.priceTargetId = null;
+  }
+
+  function computeNewPrice(currentPrice, percentOff, dollarsOff) {
+    var price = Number(currentPrice) || 0;
+    if (dollarsOff) {
+      price = price - Number(dollarsOff);
+    } else if (percentOff) {
+      price = price * (1 - Number(percentOff) / 100);
+    }
+    return Math.max(1, Math.round(price * 100) / 100);
+  }
+
+  function updatePricePreview() {
+    var id = document.getElementById("pm-id").value;
+    var item = state.items.find(function (it) { return it.id === id; });
+    if (!item) return;
+    var percentOff = document.getElementById("pm-percent-off").value;
+    var dollarsOff = document.getElementById("pm-dollars-off").value;
+    var newPrice = computeNewPrice(item.listingPrice, percentOff, dollarsOff);
+    document.getElementById("pm-new-price").textContent = fmtMoney(newPrice);
+  }
+
+  function applyPricePreset(pct) {
+    document.getElementById("pm-percent-off").value = pct;
+    document.getElementById("pm-dollars-off").value = "";
+    updatePricePreview();
+  }
+
+  function handlePriceModalSubmit(e) {
+    e.preventDefault();
+    var id = document.getElementById("pm-id").value;
+    var item = state.items.find(function (it) { return it.id === id; });
+    if (!item) return;
+    var percentOff = document.getElementById("pm-percent-off").value;
+    var dollarsOff = document.getElementById("pm-dollars-off").value;
+    var newPrice = computeNewPrice(item.listingPrice, percentOff, dollarsOff);
+    var oldPrice = item.listingPrice;
+
+    if (newPrice !== oldPrice) {
+      item.priceHistory = (item.priceHistory || []).concat([{
+        date: todayStr(),
+        oldPrice: oldPrice,
+        newPrice: newPrice,
+        source: "stale-alert"
+      }]);
+      item.listingPrice = newPrice;
+    }
+    var milestone = Number(document.getElementById("pm-milestone").value) || getPendingMilestone(item);
+    touchItem(item, milestone);
+    save();
+    closePriceModal();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Price updated to " + fmtMoney(newPrice) + ".");
   }
 
   // ---------- mark as sold modal ----------
@@ -928,6 +1150,26 @@
     load();
     initTabs();
     renderDashboard();
+    updateAlertsBadge();
+
+    document.getElementById("alerts-list").addEventListener("click", handleAlertsListClick);
+
+    document.getElementById("price-form").addEventListener("submit", handlePriceModalSubmit);
+    document.getElementById("pm-cancel").addEventListener("click", closePriceModal);
+    document.getElementById("pm-percent-off").addEventListener("input", function () {
+      document.getElementById("pm-dollars-off").value = "";
+      updatePricePreview();
+    });
+    document.getElementById("pm-dollars-off").addEventListener("input", function () {
+      document.getElementById("pm-percent-off").value = "";
+      updatePricePreview();
+    });
+    document.querySelectorAll(".price-preset-row button[data-preset-pct]").forEach(function (btn) {
+      btn.addEventListener("click", function () { applyPricePreset(btn.dataset.presetPct); });
+    });
+    document.getElementById("price-modal-backdrop").addEventListener("click", function (e) {
+      if (e.target === this) closePriceModal();
+    });
 
     document.getElementById("inv-search").addEventListener("input", renderInventory);
     document.getElementById("inv-filter-dept").addEventListener("change", renderInventory);
