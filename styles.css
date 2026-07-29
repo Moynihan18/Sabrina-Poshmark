@@ -232,14 +232,17 @@ body {
 .toolbar {
   display: flex; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; align-items: center;
 }
+input, select, textarea {
+  font-family: inherit;
+  /* keep at 16px+ - anything smaller makes mobile Safari auto-zoom the whole page on focus */
+  font-size: 16px;
+}
 .input, select.input, textarea {
   background: var(--input-bg);
   border: 1px solid var(--border);
   color: var(--text-primary);
   border-radius: 8px;
   padding: 8px 10px;
-  font-size: 14px;
-  font-family: inherit;
 }
 .search-input { min-width: 220px; flex: 1; }
 .sku-filter { max-width: 110px; }
