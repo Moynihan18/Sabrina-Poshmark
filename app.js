@@ -574,24 +574,6 @@
       .slice(0, 8);
     renderBarList(document.getElementById("chart-brands"), brandRows);
 
-    // profit margin by department
-    var deptMargins = {};
-    soldInScope.forEach(function (it) {
-      var d = it.department || "Other";
-      var m = marginOf(it);
-      if (m === null || !isFinite(m)) return;
-      if (!deptMargins[d]) deptMargins[d] = [];
-      deptMargins[d].push(m);
-    });
-    var deptRows = Object.keys(deptMargins)
-      .map(function (k) {
-        var arr = deptMargins[k];
-        var avg = arr.reduce(function (a, b) { return a + b; }, 0) / arr.length;
-        return { label: k, value: avg, display: (avg * 100).toFixed(0) + "%" };
-      })
-      .sort(function (a, b) { return b.value - a.value; });
-    renderBarList(document.getElementById("chart-departments"), deptRows);
-
     // sales over time (last 12 months with sales, within the selected scope)
     var monthCounts = {};
     soldInScope.forEach(function (it) {
