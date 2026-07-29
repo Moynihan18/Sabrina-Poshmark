@@ -447,31 +447,21 @@
     return div;
   }
 
-  var PROFIT_SCOPE_KEY = "poshmark-inventory-profit-scope";
+  var INSIGHTS_SCOPE_KEY = "poshmark-inventory-insights-scope";
 
-  function getProfitScope() {
-    return localStorage.getItem(PROFIT_SCOPE_KEY) === "all" ? "all" : "year";
+  function getInsightsScope() {
+    return localStorage.getItem(INSIGHTS_SCOPE_KEY) === "all" ? "all" : "year";
   }
 
-  function setProfitScope(scope) {
-    localStorage.setItem(PROFIT_SCOPE_KEY, scope);
+  function setInsightsScope(scope) {
+    localStorage.setItem(INSIGHTS_SCOPE_KEY, scope);
     renderDashboard();
   }
 
-  function renderProfitStatTile(scope, valueYear, valueAllTime) {
-    var div = document.createElement("div");
-    div.className = "stat-tile";
-    var value = scope === "all" ? valueAllTime : valueYear;
-    div.innerHTML =
-      '<div class="label-row">' +
-      '<div class="label">Total Profit</div>' +
-      '<div class="scope-toggle" role="group" aria-label="Profit time range">' +
-      '<button type="button" class="scope-btn' + (scope === "year" ? " active" : "") + '" data-profit-scope="year">This Year</button>' +
-      '<button type="button" class="scope-btn' + (scope === "all" ? " active" : "") + '" data-profit-scope="all">All Time</button>' +
-      "</div></div>" +
-      '<div class="value">' + fmtMoney(value) + "</div>" +
-      '<div class="sub">After Poshmark fees</div>';
-    return div;
+  function syncInsightsScopeToggle(scope) {
+    document.querySelectorAll('#insights-scope-toggle button[data-insights-scope]').forEach(function (btn) {
+      btn.classList.toggle("active", btn.dataset.insightsScope === scope);
+    });
   }
 
   function renderBarList(container, rows, opts) {
@@ -530,29 +520,29 @@
 
   function renderDashboard() {
     renderDashboardBanner();
+    var scope = getInsightsScope();
+    syncInsightsScopeToggle(scope);
+
     var sold = state.items.filter(function (it) { return it.status === "sold"; });
     var active = state.items.filter(function (it) { return it.status === "active"; });
-
-    var totalRevenue = sold.reduce(function (s, it) { return s + (Number(it.salePrice) || 0); }, 0);
-    var totalIncome = sold.reduce(function (s, it) { return s + (Number(it.incomeAfterFees) || 0); }, 0);
-    var totalProfitAllTime = sold.reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
     var currentYear = new Date().getFullYear();
-    var totalProfitThisYear = sold
-      .filter(function (it) {
-        if (!it.dateSold) return false;
-        var d = new Date(it.dateSold);
-        return !isNaN(d) && d.getFullYear() === currentYear;
-      })
-      .reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
-    var margins = sold.map(marginOf).filter(function (m) { return m !== null && isFinite(m); });
+    var soldInScope = scope === "all" ? sold : sold.filter(function (it) {
+      if (!it.dateSold) return false;
+      var d = new Date(it.dateSold);
+      return !isNaN(d) && d.getFullYear() === currentYear;
+    });
+    var scopeLabel = scope === "all" ? "All-time" : "This year";
+
+    var totalProfit = soldInScope.reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
+    var margins = soldInScope.map(marginOf).filter(function (m) { return m !== null && isFinite(m); });
     var avgMargin = margins.length ? margins.reduce(function (a, b) { return a + b; }, 0) / margins.length : null;
     var activeValue = active.reduce(function (s, it) { return s + (Number(it.listingPrice) || 0); }, 0);
 
     var statRow = document.getElementById("stat-row");
     statRow.innerHTML = "";
-    statRow.appendChild(renderStatTile("Items Sold", sold.length, "All-time"));
+    statRow.appendChild(renderStatTile("Items Sold", soldInScope.length, scopeLabel));
     statRow.appendChild(renderStatTile("Active Inventory", active.length, fmtMoney(activeValue) + " in listing value"));
-    statRow.appendChild(renderProfitStatTile(getProfitScope(), totalProfitThisYear, totalProfitAllTime));
+    statRow.appendChild(renderStatTile("Total Profit", fmtMoney(totalProfit), "After Poshmark fees · " + scopeLabel.toLowerCase()));
     statRow.appendChild(renderStatTile(
       "Average Profit Margin",
       avgMargin !== null ? (avgMargin * 100).toFixed(1) + "%" : "—",
@@ -561,7 +551,7 @@
 
     // top categories by units sold
     var catCounts = {};
-    sold.forEach(function (it) {
+    soldInScope.forEach(function (it) {
       var c = it.category || "Uncategorized";
       catCounts[c] = (catCounts[c] || 0) + 1;
     });
@@ -573,7 +563,7 @@
 
     // top brands by units sold
     var brandCounts = {};
-    sold.forEach(function (it) {
+    soldInScope.forEach(function (it) {
       var b = it.brand;
       if (!b) return;
       brandCounts[b] = (brandCounts[b] || 0) + 1;
@@ -586,7 +576,7 @@
 
     // profit margin by department
     var deptMargins = {};
-    sold.forEach(function (it) {
+    soldInScope.forEach(function (it) {
       var d = it.department || "Other";
       var m = marginOf(it);
       if (m === null || !isFinite(m)) return;
@@ -602,9 +592,9 @@
       .sort(function (a, b) { return b.value - a.value; });
     renderBarList(document.getElementById("chart-departments"), deptRows);
 
-    // sales over time (last 12 months with sales)
+    // sales over time (last 12 months with sales, within the selected scope)
     var monthCounts = {};
-    sold.forEach(function (it) {
+    soldInScope.forEach(function (it) {
       if (!it.dateSold) return;
       var d = new Date(it.dateSold);
       if (isNaN(d)) return;
@@ -1367,9 +1357,9 @@
 
     document.getElementById("view-alerts").addEventListener("click", handleAlertsClick);
     document.getElementById("view-alerts").addEventListener("change", handleAlertsChange);
-    document.getElementById("stat-row").addEventListener("click", function (e) {
-      var btn = e.target.closest("button[data-profit-scope]");
-      if (btn) setProfitScope(btn.dataset.profitScope);
+    document.getElementById("insights-scope-toggle").addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-insights-scope]");
+      if (btn) setInsightsScope(btn.dataset.insightsScope);
     });
 
     document.getElementById("price-form").addEventListener("submit", handlePriceModalSubmit);

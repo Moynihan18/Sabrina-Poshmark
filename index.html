@@ -43,6 +43,13 @@
     <!-- DASHBOARD / INSIGHTS -->
     <section id="view-dashboard" class="view active">
       <div class="dashboard-banner" id="dashboard-banner" hidden></div>
+      <div class="dashboard-scope-row">
+        <span class="dashboard-scope-label">Insights for</span>
+        <div class="scope-toggle" id="insights-scope-toggle" role="group" aria-label="Insights time range">
+          <button type="button" class="scope-btn" data-insights-scope="year">This Year</button>
+          <button type="button" class="scope-btn" data-insights-scope="all">All Time</button>
+        </div>
+      </div>
       <div class="stat-row" id="stat-row"></div>
       <div class="panel-row">
         <div class="panel">
