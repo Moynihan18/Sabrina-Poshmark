@@ -72,14 +72,38 @@
 
     <!-- ALERTS (STALE INVENTORY) -->
     <section id="view-alerts" class="view">
-      <p class="panel-sub" id="alerts-intro">Items that have been listed 30, 60, or 90 days without selling. Drop the price, dismiss for now, or mark it as re-listed to reset the clock.</p>
-      <div id="alerts-list" class="alerts-list"></div>
+      <p class="panel-sub" id="alerts-intro">Items that have been listed 30, 60, or 90 days without selling. Drop the price, dismiss for now, or mark items as re-listed to reset their clock. Select multiple items to act on them all at once.</p>
+
+      <div class="alerts-section" data-section="mid">
+        <div class="alerts-section-header">
+          <h2>30–60 Day Check-ins</h2>
+          <label class="select-all-label">
+            <input type="checkbox" class="select-all-checkbox" data-section="mid" /> Select all
+          </label>
+          <span class="toolbar-count" id="alerts-mid-count"></span>
+        </div>
+        <div class="bulk-bar" id="bulk-bar-mid" hidden></div>
+        <div id="alerts-list-mid" class="alerts-list"></div>
+      </div>
+
+      <div class="alerts-section" data-section="late">
+        <div class="alerts-section-header">
+          <h2>90+ Days — Time to Relist</h2>
+          <label class="select-all-label">
+            <input type="checkbox" class="select-all-checkbox" data-section="late" /> Select all
+          </label>
+          <span class="toolbar-count" id="alerts-late-count"></span>
+        </div>
+        <div class="bulk-bar" id="bulk-bar-late" hidden></div>
+        <div id="alerts-list-late" class="alerts-list"></div>
+      </div>
     </section>
 
     <!-- INVENTORY (ACTIVE) -->
     <section id="view-inventory" class="view">
       <div class="toolbar">
         <input type="search" id="inv-search" placeholder="Search title, brand, SKU…" class="input search-input" />
+        <input type="text" id="inv-filter-sku" placeholder="SKU" class="input sku-filter" />
         <select id="inv-filter-dept" class="input"><option value="">All departments</option></select>
         <select id="inv-filter-cat" class="input"><option value="">All categories</option></select>
         <select id="inv-sort" class="input">

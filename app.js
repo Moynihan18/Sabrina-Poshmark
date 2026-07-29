@@ -3,7 +3,7 @@
 
   var STORAGE_KEY = "poshmark-inventory-v1";
   var THEME_KEY = "poshmark-inventory-theme";
-  var state = { items: [], editingId: null, soldTargetId: null, priceTargetId: null };
+  var state = { items: [], editingId: null, soldTargetId: null, priceTargetId: null, selectedAlertIds: new Set() };
 
   // ---------- theme ----------
 
@@ -447,6 +447,33 @@
     return div;
   }
 
+  var PROFIT_SCOPE_KEY = "poshmark-inventory-profit-scope";
+
+  function getProfitScope() {
+    return localStorage.getItem(PROFIT_SCOPE_KEY) === "all" ? "all" : "year";
+  }
+
+  function setProfitScope(scope) {
+    localStorage.setItem(PROFIT_SCOPE_KEY, scope);
+    renderDashboard();
+  }
+
+  function renderProfitStatTile(scope, valueYear, valueAllTime) {
+    var div = document.createElement("div");
+    div.className = "stat-tile";
+    var value = scope === "all" ? valueAllTime : valueYear;
+    div.innerHTML =
+      '<div class="label-row">' +
+      '<div class="label">Total Profit</div>' +
+      '<div class="scope-toggle" role="group" aria-label="Profit time range">' +
+      '<button type="button" class="scope-btn' + (scope === "year" ? " active" : "") + '" data-profit-scope="year">This Year</button>' +
+      '<button type="button" class="scope-btn' + (scope === "all" ? " active" : "") + '" data-profit-scope="all">All Time</button>' +
+      "</div></div>" +
+      '<div class="value">' + fmtMoney(value) + "</div>" +
+      '<div class="sub">After Poshmark fees</div>';
+    return div;
+  }
+
   function renderBarList(container, rows, opts) {
     opts = opts || {};
     container.innerHTML = "";
@@ -508,7 +535,15 @@
 
     var totalRevenue = sold.reduce(function (s, it) { return s + (Number(it.salePrice) || 0); }, 0);
     var totalIncome = sold.reduce(function (s, it) { return s + (Number(it.incomeAfterFees) || 0); }, 0);
-    var totalProfit = sold.reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
+    var totalProfitAllTime = sold.reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
+    var currentYear = new Date().getFullYear();
+    var totalProfitThisYear = sold
+      .filter(function (it) {
+        if (!it.dateSold) return false;
+        var d = new Date(it.dateSold);
+        return !isNaN(d) && d.getFullYear() === currentYear;
+      })
+      .reduce(function (s, it) { return s + (Number(it.profit) || 0); }, 0);
     var margins = sold.map(marginOf).filter(function (m) { return m !== null && isFinite(m); });
     var avgMargin = margins.length ? margins.reduce(function (a, b) { return a + b; }, 0) / margins.length : null;
     var activeValue = active.reduce(function (s, it) { return s + (Number(it.listingPrice) || 0); }, 0);
@@ -517,7 +552,7 @@
     statRow.innerHTML = "";
     statRow.appendChild(renderStatTile("Items Sold", sold.length, "All-time"));
     statRow.appendChild(renderStatTile("Active Inventory", active.length, fmtMoney(activeValue) + " in listing value"));
-    statRow.appendChild(renderStatTile("Total Profit", fmtMoney(totalProfit), "After Poshmark fees"));
+    statRow.appendChild(renderProfitStatTile(getProfitScope(), totalProfitThisYear, totalProfitAllTime));
     statRow.appendChild(renderStatTile(
       "Average Profit Margin",
       avgMargin !== null ? (avgMargin * 100).toFixed(1) + "%" : "—",
@@ -589,6 +624,7 @@
 
   function getFilteredActive() {
     var q = document.getElementById("inv-search").value.trim().toLowerCase();
+    var skuQuery = document.getElementById("inv-filter-sku").value.trim().toLowerCase();
     var dept = document.getElementById("inv-filter-dept").value;
     var cat = document.getElementById("inv-filter-cat").value;
     var sort = document.getElementById("inv-sort").value;
@@ -602,6 +638,9 @@
           (String(it.sku).toLowerCase().indexOf(q) !== -1)
         );
       });
+    }
+    if (skuQuery) {
+      rows = rows.filter(function (it) { return String(it.sku).toLowerCase().indexOf(skuQuery) !== -1; });
     }
     if (dept) rows = rows.filter(function (it) { return it.department === dept; });
     if (cat) rows = rows.filter(function (it) { return it.category === cat; });
@@ -712,6 +751,7 @@
     }
     rows.forEach(function (it) {
       var tr = document.createElement("tr");
+      tr.className = "sold-row";
       var days = daysBetween(it.dateListed, it.dateSold);
       var margin = marginOf(it);
       var profit = Number(it.profit);
@@ -857,34 +897,91 @@
     }
   }
 
-  function renderAlerts() {
-    updateAlertsBadge();
-    var list = document.getElementById("alerts-list");
-    var stale = getStaleItems();
+  function getStaleGroups() {
+    var all = getStaleItems();
+    return {
+      mid: all.filter(function (it) { var m = getPendingMilestone(it); return m === 30 || m === 60; }),
+      late: all.filter(function (it) { return getPendingMilestone(it) === 90; })
+    };
+  }
+
+  function alertCardHtml(it) {
+    var milestone = getPendingMilestone(it);
+    var days = daysBetween(it.dateListed, todayStr());
+    var checked = state.selectedAlertIds.has(it.id) ? "checked" : "";
+    return (
+      '<label class="alert-card-checkbox-wrap"><input type="checkbox" class="alert-card-checkbox" data-id="' + it.id + '" ' + checked + " /></label>" +
+      '<div class="alert-card-info">' +
+      '<div class="alert-card-title">' + esc(it.title) + "</div>" +
+      '<div class="alert-card-meta">SKU ' + esc(fmtSku(it.sku)) + (it.brand ? " · " + esc(it.brand) : "") +
+      " · listed <strong>" + days + " days ago</strong> · " + milestone + "-day mark · " +
+      "<strong>" + fmtMoney(it.listingPrice) + "</strong></div>" +
+      "</div>" +
+      '<div class="alert-card-actions">' +
+      '<button class="btn btn-sm" data-action="alert-price" data-id="' + it.id + '">Change Price</button>' +
+      '<button class="btn btn-sm" data-action="alert-renew" data-id="' + it.id + '">Mark as Re-listed</button>' +
+      '<button class="btn btn-sm btn-ghost" data-action="alert-dismiss" data-id="' + it.id + '">Dismiss</button>' +
+      "</div>"
+    );
+  }
+
+  function bulkBarHtml(count) {
+    return (
+      '<span class="bulk-count">' + count + " selected</span>" +
+      '<div class="price-preset-row">' +
+      '<button type="button" class="btn btn-sm" data-bulk-preset="10">10% off</button>' +
+      '<button type="button" class="btn btn-sm" data-bulk-preset="15">15% off</button>' +
+      '<button type="button" class="btn btn-sm" data-bulk-preset="20">20% off</button>' +
+      "</div>" +
+      '<input type="number" class="input bulk-pct" placeholder="% off" min="0" max="100" />' +
+      '<input type="number" class="input bulk-dollars" placeholder="$ off" min="0" step="0.01" />' +
+      '<button type="button" class="btn btn-primary btn-sm bulk-apply-price">Apply Price to Selected</button>' +
+      '<button type="button" class="btn btn-sm bulk-renew">Mark Selected as Re-listed</button>' +
+      '<button type="button" class="btn btn-sm btn-ghost bulk-dismiss">Dismiss Selected</button>'
+    );
+  }
+
+  function renderAlertsSection(section, items, emptyMessage) {
+    document.getElementById("alerts-" + section + "-count").textContent =
+      items.length + " item" + (items.length === 1 ? "" : "s");
+
+    var selectAllCb = document.querySelector('.select-all-checkbox[data-section="' + section + '"]');
+    selectAllCb.checked = items.length > 0 && items.every(function (it) { return state.selectedAlertIds.has(it.id); });
+    selectAllCb.disabled = items.length === 0;
+
+    var selectedCount = items.filter(function (it) { return state.selectedAlertIds.has(it.id); }).length;
+    var bulkBar = document.getElementById("bulk-bar-" + section);
+    if (selectedCount > 0) {
+      bulkBar.hidden = false;
+      bulkBar.innerHTML = bulkBarHtml(selectedCount);
+    } else {
+      bulkBar.hidden = true;
+      bulkBar.innerHTML = "";
+    }
+
+    var list = document.getElementById("alerts-list-" + section);
     list.innerHTML = "";
-    if (!stale.length) {
-      list.innerHTML = '<p class="empty-alerts">Nothing stale right now — everything currently listed is within 30 days.</p>';
+    if (!items.length) {
+      list.innerHTML = '<p class="empty-alerts">' + esc(emptyMessage) + "</p>";
       return;
     }
-    stale.forEach(function (it) {
-      var milestone = getPendingMilestone(it);
-      var days = daysBetween(it.dateListed, todayStr());
+    items.forEach(function (it) {
       var card = document.createElement("div");
       card.className = "alert-card";
-      card.innerHTML =
-        '<div class="alert-card-info">' +
-        '<div class="alert-card-title">' + esc(it.title) + "</div>" +
-        '<div class="alert-card-meta">SKU ' + esc(fmtSku(it.sku)) + (it.brand ? " · " + esc(it.brand) : "") +
-        " · listed <strong>" + days + " days ago</strong> · " + milestone + "-day mark · " +
-        "<strong>" + fmtMoney(it.listingPrice) + "</strong></div>" +
-        "</div>" +
-        '<div class="alert-card-actions">' +
-        '<button class="btn btn-sm" data-action="alert-price" data-id="' + it.id + '">Change Price</button>' +
-        '<button class="btn btn-sm" data-action="alert-renew" data-id="' + it.id + '">Mark as Re-listed</button>' +
-        '<button class="btn btn-sm btn-ghost" data-action="alert-dismiss" data-id="' + it.id + '">Dismiss</button>' +
-        "</div>";
+      card.innerHTML = alertCardHtml(it);
       list.appendChild(card);
     });
+  }
+
+  function renderAlerts() {
+    updateAlertsBadge();
+    var groups = getStaleGroups();
+    var validIds = new Set(groups.mid.concat(groups.late).map(function (it) { return it.id; }));
+    Array.from(state.selectedAlertIds).forEach(function (id) {
+      if (!validIds.has(id)) state.selectedAlertIds.delete(id);
+    });
+    renderAlertsSection("mid", groups.mid, "Nothing in the 30-60 day range right now.");
+    renderAlertsSection("late", groups.late, "Nothing at the 90+ day mark right now.");
   }
 
   function touchItem(item, milestone) {
@@ -918,14 +1015,130 @@
     showToast("Listing renewed — clock reset.");
   }
 
-  function handleAlertsListClick(e) {
-    var btn = e.target.closest("button[data-action]");
-    if (!btn) return;
-    var id = btn.dataset.id;
-    var action = btn.dataset.action;
-    if (action === "alert-dismiss") dismissAlert(id);
-    else if (action === "alert-renew") renewListing(id);
-    else if (action === "alert-price") openPriceModal(id);
+  function selectedIdsInSection(section) {
+    return Array.from(document.querySelectorAll("#alerts-list-" + section + " .alert-card-checkbox:checked"))
+      .map(function (cb) { return cb.dataset.id; });
+  }
+
+  function bulkApplyPrice(ids, percentOff, dollarsOff) {
+    if (!ids.length) return;
+    ids.forEach(function (id) {
+      var item = state.items.find(function (it) { return it.id === id; });
+      if (!item) return;
+      var oldPrice = item.listingPrice;
+      var newPrice = computeNewPrice(oldPrice, percentOff, dollarsOff);
+      if (newPrice !== oldPrice) {
+        item.priceHistory = (item.priceHistory || []).concat([{
+          date: todayStr(),
+          oldPrice: oldPrice,
+          newPrice: newPrice,
+          source: "stale-alert-bulk"
+        }]);
+        item.listingPrice = newPrice;
+      }
+      touchItem(item, getPendingMilestone(item));
+      state.selectedAlertIds.delete(id);
+    });
+    save();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Updated price on " + ids.length + " item" + (ids.length === 1 ? "" : "s") + ".");
+  }
+
+  function bulkDismiss(ids) {
+    if (!ids.length) return;
+    ids.forEach(function (id) {
+      var item = state.items.find(function (it) { return it.id === id; });
+      if (!item) return;
+      touchItem(item, getPendingMilestone(item));
+      state.selectedAlertIds.delete(id);
+    });
+    save();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Dismissed " + ids.length + " item" + (ids.length === 1 ? "" : "s") + ".");
+  }
+
+  function bulkRenew(ids) {
+    if (!ids.length) return;
+    if (!confirm("Mark " + ids.length + " item" + (ids.length === 1 ? "" : "s") + " as re-listed? This resets their 30/60/90-day clock back to today.")) return;
+    ids.forEach(function (id) {
+      var item = state.items.find(function (it) { return it.id === id; });
+      if (!item) return;
+      item.dateListed = todayStr();
+      item.lastAcknowledgedMilestone = 0;
+      item.lastUpdate = todayStr();
+      state.selectedAlertIds.delete(id);
+    });
+    save();
+    renderAlerts();
+    renderInventory();
+    renderDashboardBanner();
+    showToast("Renewed " + ids.length + " listing" + (ids.length === 1 ? "" : "s") + ".");
+  }
+
+  function handleAlertsClick(e) {
+    var actionBtn = e.target.closest("button[data-action]");
+    if (actionBtn) {
+      var id = actionBtn.dataset.id;
+      var action = actionBtn.dataset.action;
+      if (action === "alert-dismiss") dismissAlert(id);
+      else if (action === "alert-renew") renewListing(id);
+      else if (action === "alert-price") openPriceModal(id);
+      return;
+    }
+
+    var presetBtn = e.target.closest("button[data-bulk-preset]");
+    if (presetBtn) {
+      var bar = presetBtn.closest(".bulk-bar");
+      bar.querySelector(".bulk-pct").value = presetBtn.dataset.bulkPreset;
+      bar.querySelector(".bulk-dollars").value = "";
+      return;
+    }
+
+    var applyBtn = e.target.closest(".bulk-apply-price");
+    if (applyBtn) {
+      var applySection = applyBtn.closest(".alerts-section").dataset.section;
+      var applyBar = applyBtn.closest(".bulk-bar");
+      var pct = applyBar.querySelector(".bulk-pct").value;
+      var dollars = applyBar.querySelector(".bulk-dollars").value;
+      bulkApplyPrice(selectedIdsInSection(applySection), pct, dollars);
+      return;
+    }
+
+    var dismissBtn = e.target.closest(".bulk-dismiss");
+    if (dismissBtn) {
+      var dismissSection = dismissBtn.closest(".alerts-section").dataset.section;
+      bulkDismiss(selectedIdsInSection(dismissSection));
+      return;
+    }
+
+    var renewBtn = e.target.closest(".bulk-renew");
+    if (renewBtn) {
+      var renewSection = renewBtn.closest(".alerts-section").dataset.section;
+      bulkRenew(selectedIdsInSection(renewSection));
+      return;
+    }
+  }
+
+  function handleAlertsChange(e) {
+    var target = e.target;
+    if (target.classList.contains("select-all-checkbox")) {
+      var section = target.dataset.section;
+      var items = getStaleGroups()[section];
+      items.forEach(function (it) {
+        if (target.checked) state.selectedAlertIds.add(it.id);
+        else state.selectedAlertIds.delete(it.id);
+      });
+      renderAlerts();
+    } else if (target.classList.contains("alert-card-checkbox")) {
+      var id = target.dataset.id;
+      if (target.checked) state.selectedAlertIds.add(id);
+      else state.selectedAlertIds.delete(id);
+      renderAlerts();
+    }
   }
 
   // ---------- price change modal ----------
@@ -1152,7 +1365,12 @@
     renderDashboard();
     updateAlertsBadge();
 
-    document.getElementById("alerts-list").addEventListener("click", handleAlertsListClick);
+    document.getElementById("view-alerts").addEventListener("click", handleAlertsClick);
+    document.getElementById("view-alerts").addEventListener("change", handleAlertsChange);
+    document.getElementById("stat-row").addEventListener("click", function (e) {
+      var btn = e.target.closest("button[data-profit-scope]");
+      if (btn) setProfitScope(btn.dataset.profitScope);
+    });
 
     document.getElementById("price-form").addEventListener("submit", handlePriceModalSubmit);
     document.getElementById("pm-cancel").addEventListener("click", closePriceModal);
@@ -1172,6 +1390,7 @@
     });
 
     document.getElementById("inv-search").addEventListener("input", renderInventory);
+    document.getElementById("inv-filter-sku").addEventListener("input", renderInventory);
     document.getElementById("inv-filter-dept").addEventListener("change", renderInventory);
     document.getElementById("inv-filter-cat").addEventListener("change", renderInventory);
     document.getElementById("inv-sort").addEventListener("change", renderInventory);
